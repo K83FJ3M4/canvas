@@ -1,14 +1,24 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use wgpu::{CommandEncoder, ComputePassDescriptor, Device, TextureView};
+
+pub struct DrawContext {
+    device: Device,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct DrawList {
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+}
+
+impl DrawContext {
+    pub fn new(device: Device) -> DrawContext {
+        DrawContext {
+            device
+        }
+    }
+
+    pub fn render(&mut self, encoder: &mut CommandEncoder, list: &mut DrawList, texture: TextureView) {
+        let compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+            label: Some("Canvas Compute Pass"),
+            timestamp_writes: None
+        });
     }
 }
