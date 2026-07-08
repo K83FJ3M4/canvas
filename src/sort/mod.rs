@@ -1,12 +1,24 @@
+use std::mem::replace;
+
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
+use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
+
+use crate::alloc::{Allocation, AllocationMemory};
 
 pub(super) struct SortPipeline {
     count_keys: ComputePipeline,
     count_histograms: ComputePipeline,
+    bind_group_layout: BindGroupLayout,
     uniform_offsets: Vec<u32>,
     uniforms: Buffer,
     device: Device,
+}
+
+pub(super) struct SortBuffers<'a> {
+    pub(super) keys: Allocation<u32>,
+    pub(super) temp_keys: Allocation<u32>,
+    pub(super) histograms: Allocation<[u32; 16]>,
+    pub(super) memory: AllocationMemory<'a>
 }
 
 impl SortPipeline {
@@ -81,6 +93,7 @@ impl SortPipeline {
         });
 
         SortPipeline {
+            bind_group_layout,
             count_histograms,
             uniform_offsets,
             count_keys,
@@ -89,9 +102,35 @@ impl SortPipeline {
         }
     }
 
-    fn encode(&self, compute_pass: &mut ComputePass) {
-        for offset in self.uniform_offsets.iter().copied() {
+    fn encode(&self, compute_pass: &mut ComputePass, buffers: SortBuffers) {
+        let Some(keys) = buffers.keys.binding(buffers.memory) else { return };
+        let Some(temp_keys) = buffers.temp_keys.binding(buffers.memory) else { return };
+        let Some(histograms) = buffers.histograms.binding(buffers.memory) else { return };
+        let uniforms = self.uniforms.as_entire_binding();
 
+        let mut binding = 0;
+        let bind_group_entries = [keys, temp_keys, histograms, uniforms].map(|resource| {
+            let entry = BindGroupEntry { binding, resource };
+            binding += 1;
+            entry
+        });
+
+        let bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Sort Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: bind_group_entries.as_slice()
+        });
+
+        for offset in self.uniform_offsets.iter().copied() {
+            let x = buffers.keys.len().div_ceil(256) as u32;
+            compute_pass.set_bind_group(0, &bind_group, &[offset]);
+            compute_pass.set_pipeline(&self.count_keys);
+            compute_pass.dispatch_workgroups(x, 1, 1);
+            //compute_pass.set_pipeline(&self.count_histograms);
+
+
+            //Only for testing purposes
+            break
         }
     }
 }
