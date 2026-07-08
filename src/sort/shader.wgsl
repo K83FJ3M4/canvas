@@ -14,17 +14,17 @@ var<workgroup> localKeys: array<u32, 256>;
 var<workgroup> localHistograms: array<array<u32, 16>, 16>;
 
 struct Builtin {
-    @builtin(global_invocation_index) globalIndex: u32,
-    @builtin(local_invocation_index) localIndex: u32,
-    @builtin(workgroup_index) workgroupIndex: u32,
+    @builtin(global_invocation_id) globalIndex: vec3u,
+    @builtin(local_invocation_id) localIndex: vec3u,
+    @builtin(workgroup_id) workgroupIndex: vec3u,
     @builtin(num_workgroups) numWorkgroups: vec3u,
 }
 
 @compute @workgroup_size(256)
 fn countKeys(builtin: Builtin) {
-    let localIndex = builtin.localIndex;
-    let globalIndex = builtin.globalIndex;
-    let workgroupIndex = builtin.workgroupIndex;
+    let localIndex = builtin.localIndex.x;
+    let globalIndex = builtin.globalIndex.x;
+    let workgroupIndex = builtin.workgroupIndex.x;
     let globalOffset = globalIndex - localIndex;
     let keyCount = keyArrayLength() - globalOffset;
 
@@ -45,7 +45,7 @@ fn countKeys(builtin: Builtin) {
     localHistograms[tile][lane] = count;
     workgroupBarrier();
 
-    if (localIndex >= 16u) { return }
+    if (localIndex >= 16u) { return; }
 
     count = 0u;
     for (var i = 0u; i < 16u; i++) {
@@ -56,9 +56,9 @@ fn countKeys(builtin: Builtin) {
 
 @compute @workgroup_size(256)
 fn countHistograms(builtin: Builtin) {
-    let localIndex = builtin.localIndex;
+    let localIndex = builtin.localIndex.x;
     let numWorkgroups = builtin.numWorkgroups.x;
-    let workgroupIndex = builtin.workgroupIndex;
+    let workgroupIndex = builtin.workgroupIndex.x;
     let histogramRange = getHistogramRange(numWorkgroups);
 
     let lane = localIndex & 15u;
@@ -77,7 +77,7 @@ fn countHistograms(builtin: Builtin) {
     localHistograms[tile][lane] = count;
     workgroupBarrier();
 
-    if (localIndex >= 16u) { return }
+    if (localIndex >= 16u) { return; }
 
     count = 0u;
     for (var i = 0u; i < 16u; i++) {

@@ -1,7 +1,5 @@
-use std::mem::replace;
-
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
+use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
 
 use crate::alloc::{Allocation, AllocationMemory};
 
@@ -14,11 +12,10 @@ pub(super) struct SortPipeline {
     device: Device,
 }
 
-pub(super) struct SortBuffers<'a> {
+pub(super) struct SortBuffers {
     pub(super) keys: Allocation<u32>,
     pub(super) temp_keys: Allocation<u32>,
-    pub(super) histograms: Allocation<[u32; 16]>,
-    pub(super) memory: AllocationMemory<'a>
+    pub(super) histograms: Allocation<[u32; 16]>
 }
 
 impl SortPipeline {
@@ -102,10 +99,10 @@ impl SortPipeline {
         }
     }
 
-    fn encode(&self, compute_pass: &mut ComputePass, buffers: SortBuffers) {
-        let Some(keys) = buffers.keys.binding(buffers.memory) else { return };
-        let Some(temp_keys) = buffers.temp_keys.binding(buffers.memory) else { return };
-        let Some(histograms) = buffers.histograms.binding(buffers.memory) else { return };
+    pub(super) fn encode(&self, compute_pass: &mut ComputePass, memory: &mut AllocationMemory, buffers: SortBuffers) {
+        let Some(keys) = memory.binding(buffers.keys) else { return };
+        let Some(temp_keys) = memory.binding(buffers.temp_keys) else { return };
+        let Some(histograms) = memory.binding(buffers.histograms) else { return };
         let uniforms = self.uniforms.as_entire_binding();
 
         let mut binding = 0;
@@ -126,8 +123,7 @@ impl SortPipeline {
             compute_pass.set_bind_group(0, &bind_group, &[offset]);
             compute_pass.set_pipeline(&self.count_keys);
             compute_pass.dispatch_workgroups(x, 1, 1);
-            //compute_pass.set_pipeline(&self.count_histograms);
-
+            compute_pass.set_pipeline(&self.count_histograms);
 
             //Only for testing purposes
             break
