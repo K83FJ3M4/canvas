@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use canvas::DrawContext;
 use pollster::FutureExt;
 use wgpu::{Backends, CommandEncoderDescriptor, CompositeAlphaMode, CurrentSurfaceTexture, Device, DeviceDescriptor, ExperimentalFeatures, Extent3d, Features, FilterMode, Instance, InstanceDescriptor, InstanceFlags, Limits, MemoryHints, PollType, PowerPreference, PresentMode, Queue, RequestAdapterOptions, SubmissionIndex, Surface, SurfaceColorSpace, SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, Trace, util::{TextureBlitter, TextureBlitterBuilder}};
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
@@ -41,7 +42,8 @@ struct RenderState {
     config: SurfaceConfiguration,
     texture_blitter: TextureBlitter,
     texture: Option<TextureView>,
-    index: Option<SubmissionIndex>
+    index: Option<SubmissionIndex>,
+    draw_context: DrawContext
 }
 
 impl ApplicationHandler for Application {
@@ -96,7 +98,10 @@ impl RenderState {
         };
 
         let instance = Instance::new(InstanceDescriptor {
+            #[cfg(not(windows))]
             backends: Backends::PRIMARY,
+            #[cfg(windows)]
+            backends: Backends::DX12,
             flags: InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER,
             memory_budget_thresholds: Default::default(),
             backend_options: Default::default(),
@@ -125,7 +130,6 @@ impl RenderState {
         };
 
         let features = adapter.features() & (
-            Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES |
             Features::BGRA8UNORM_STORAGE
         );
 
@@ -157,30 +161,30 @@ impl RenderState {
             width: size.width
         };
 
-        let bgra8 = adapter.get_texture_format_features(TextureFormat::Bgra8Unorm);
         let capabilities = surface.get_capabilities(&adapter);
         let rgba8 = capabilities.formats.contains(&TextureFormat::Rgba8Unorm);
         let storage = capabilities.usages.contains(TextureUsages::STORAGE_BINDING);
+        let mut format = TextureFormat::Rgba8Unorm;
 
-        if rgba8 && storage {
+        if features.contains(Features::BGRA8UNORM_STORAGE) && storage {
+            config.format = TextureFormat::Bgra8Unorm;
+            config.usage |= TextureUsages::STORAGE_BINDING;
+            format = config.format;
+        } else if rgba8 && storage {
             config.format = TextureFormat::Rgba8Unorm;
             config.usage |= TextureUsages::STORAGE_BINDING;
-        } else if features.contains(Features::BGRA8UNORM_STORAGE) && storage {
-            config.format = TextureFormat::Bgra8Unorm;
-            config.usage |= TextureUsages::STORAGE_BINDING;
-        } else if features.contains(Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) &&
-            bgra8.allowed_usages.contains(TextureUsages::STORAGE_BINDING) && storage {
-            config.format = TextureFormat::Bgra8Unorm;
-            config.usage |= TextureUsages::STORAGE_BINDING;
+            format = config.format;
         }
 
         let texture_blitter = TextureBlitterBuilder::new(&device, config.format)
             .sample_type(FilterMode::Nearest)
             .build();
 
+        let draw_context = DrawContext::new(device.clone(), format);
         surface.configure(&device, &config);
 
         Some(RenderState {
+            draw_context,
             texture: None,
             index: None,
             texture_blitter,
@@ -250,6 +254,8 @@ impl RenderState {
         let mut command_encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Canvas Command Encoder")
         });
+
+        self.draw_context.render(&mut command_encoder, texture_view.clone());
 
         if let Some(target) = target {
             self.texture_blitter.copy(
