@@ -24,6 +24,12 @@ pub(super) struct SortBuffers {
 }
 
 impl SortPipeline {
+    pub(super) fn min_histogram_capacity(key_count: usize) -> usize {
+        successors(Some(key_count), |i| Some(i.div_ceil(256)))
+            .take_while(|count| *count > 1)
+            .skip(1).chain(once(1)).sum()
+    }
+
     pub(super) fn new(device: Device) -> SortPipeline {
         let module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("Sort Shader"),
@@ -135,6 +141,9 @@ impl SortPipeline {
     }
 
     pub(super) fn encode(&self, compute_pass: &mut ComputePass, memory: &mut AllocationMemory, buffers: SortBuffers) {
+        assert!(buffers.histograms.len() >= Self::min_histogram_capacity(buffers.keys.len()));
+        assert!(buffers.keys.len() == buffers.temp_keys.len());
+
         let Some(keys) = memory.binding(buffers.keys) else { return };
         let Some(temp_keys) = memory.binding(buffers.temp_keys) else { return };
         let Some(histograms) = memory.binding(buffers.histograms) else { return };

@@ -30,12 +30,13 @@ impl DrawContext {
 
     pub fn render(&mut self, encoder: &mut CommandEncoder, texture: TextureView, device: &Device, queue: &wgpu::Queue) {
 
-        let keys = self.allocator.alloc::<u32>(32);
+        let keys = self.allocator.alloc::<u32>(1024);
         let temp_keys = self.allocator.alloc::<u32>(keys.len());
-        let histograms = self.allocator.alloc::<[u32; 16]>(4);
+        let histogram_capacity = SortPipeline::min_histogram_capacity(keys.len());
+        let histograms = self.allocator.alloc::<[u32; 16]>(histogram_capacity);
         let mut memory = self.allocator.finalize();
 
-        let mut data = vec![1000; 32];
+        let mut data = vec![1000; 1024];
         data[0] = 5;
         data[1] = 3;
         data[15] = 999999;
