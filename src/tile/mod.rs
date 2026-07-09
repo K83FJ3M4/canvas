@@ -1,11 +1,19 @@
 use std::borrow::Cow;
 
-use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureFormat, TextureView, TextureViewDimension};
+use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBindingType, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureFormat, TextureView, TextureViewDimension};
+
+use crate::alloc::{Allocation, AllocationMemory};
 
 pub(super) struct TilePipeline {
     compute_pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
     device: Device
+}
+
+pub(super) struct TileBuffers {
+    pub(super) texture: TextureView,
+    pub(super) lists: Allocation<u32>,
+    pub(super) list_ranges: Allocation<[u32; 2]>
 }
 
 impl TilePipeline {
@@ -22,20 +30,28 @@ impl TilePipeline {
             source: ShaderSource::Wgsl(Cow::Owned(source))
         });
 
-        let texture_layout_entry = BindGroupLayoutEntry {
-            binding: 0,
-            count: None,
+        let bind_group_layout_entries = [0, 1, 2].map(|i| BindGroupLayoutEntry {
+            binding: i,
             visibility: ShaderStages::COMPUTE,
-            ty: BindingType::StorageTexture {
-                access: StorageTextureAccess::WriteOnly,
-                view_dimension: TextureViewDimension::D2,
-                format
+            count: None,
+            ty: if i == 0 {
+                BindingType::StorageTexture {
+                    access: StorageTextureAccess::WriteOnly,
+                    view_dimension: TextureViewDimension::D2,
+                    format
+                }
+            } else {
+                BindingType::Buffer {
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                    ty: BufferBindingType::Storage { read_only: false }
+                }
             }
-        };
+        });
 
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Tile Bind Group Layout"),
-            entries: &[texture_layout_entry]
+            entries: &bind_group_layout_entries
         });
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -60,20 +76,26 @@ impl TilePipeline {
         }
     }
 
-    pub(super) fn encode(&self, compute_pass: &mut ComputePass, texture: TextureView) {
-        let texture_entry = BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(&texture)
-        };
+    pub(super) fn encode(&self, compute_pass: &mut ComputePass, memory: &mut AllocationMemory, buffers: TileBuffers) {
+        let Some(lists) = memory.binding(buffers.lists) else { return };
+        let Some(list_ranges) = memory.binding(buffers.list_ranges) else { return };
+        let texture = BindingResource::TextureView(&buffers.texture);
+
+        let mut binding = 0;
+        let bind_group_entries = [texture, lists, list_ranges].map(|resource| {
+            let entry = BindGroupEntry { binding, resource };
+            binding += 1;
+            entry
+        });
 
         let bind_group = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Tile Bind Group"),
             layout: &self.bind_group_layout,
-            entries: &[texture_entry]
+            entries: &bind_group_entries
         });
 
-        let x = texture.texture().width().div_ceil(16);
-        let y = texture.texture().height().div_ceil(16);
+        let x = buffers.texture.texture().width().div_ceil(16);
+        let y = buffers.texture.texture().height().div_ceil(16);
         compute_pass.set_bind_group(0, &bind_group, Default::default());
         compute_pass.set_pipeline(&self.compute_pipeline);
         compute_pass.dispatch_workgroups(x, y, 1);

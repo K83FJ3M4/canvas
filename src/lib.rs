@@ -10,7 +10,7 @@ use wgpu::{BindingResource, CommandEncoder, ComputePassDescriptor, Device, Textu
 use crate::alloc::Allocator;
 use crate::index::{IndexBuffers, IndexPipeline};
 use crate::sort::{SortBuffers, SortPipeline};
-use crate::tile::TilePipeline;
+use crate::tile::{TileBuffers, TilePipeline};
 
 pub struct DrawContext {
     index_pipeline: IndexPipeline,
@@ -39,8 +39,8 @@ impl DrawContext {
         let list_ranges = self.allocator.alloc::<[u32; 2]>(32);
         let keys = self.allocator.alloc::<u32>(1024);
         let temp_keys = self.allocator.alloc::<u32>(keys.len());
-        let values = self.allocator.alloc::<u32>(keys.len());
-        let temp_values = self.allocator.alloc::<u32>(keys.len());
+        let lists = self.allocator.alloc::<u32>(keys.len());
+        let temp_lists = self.allocator.alloc::<u32>(keys.len());
         let histogram_capacity = SortPipeline::min_histogram_capacity(keys.len());
         let histograms = self.allocator.alloc::<[u32; 16]>(histogram_capacity);
         let mut memory = self.allocator.finalize();
@@ -52,7 +52,7 @@ impl DrawContext {
         data[31] = 1;
         memory.upload(encoder, keys, &data);
         let values_data = (0..1024).collect::<Vec<u32>>();
-        memory.upload(encoder, values, &values_data);
+        memory.upload(encoder, lists, &values_data);
 
         if let Some(BindingResource::Buffer(list_ranges)) = memory.binding(list_ranges) {
             let size = list_ranges.size.map(NonZero::<u64>::get);
@@ -67,8 +67,8 @@ impl DrawContext {
         self.sort_pipeline.encode(&mut compute_pass, &mut memory, SortBuffers {
             keys,
             temp_keys,
-            values,
-            temp_values,
+            values: lists,
+            temp_values: temp_lists,
             histograms,
         });
 
@@ -93,6 +93,10 @@ impl DrawContext {
             }
         }
 
-        self.tile_pipeline.encode(&mut compute_pass, texture);
+        self.tile_pipeline.encode(&mut compute_pass, &mut memory, TileBuffers {
+            list_ranges,
+            texture,
+            lists
+        });
     }
 }
