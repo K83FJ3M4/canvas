@@ -5,12 +5,19 @@ var<storage, read_write> keysA: array<u32>;
 var<storage, read_write> keysB: array<u32>;
 
 @group(0) @binding(2)
-var<storage, read_write> histograms: array<array<u32, 16>>;
+var<storage, read_write> valuesA: array<u32>;
 
 @group(0) @binding(3)
+var<storage, read_write> valuesB: array<u32>;
+
+@group(0) @binding(4)
+var<storage, read_write> histograms: array<array<u32, 16>>;
+
+@group(0) @binding(5)
 var<uniform> shift: u32;
 
 var<workgroup> localKeys: array<u32, 256>;
+var<workgroup> localValues: array<u32, 256>;
 var<workgroup> offsetHistogram: array<u32, 16>;
 var<workgroup> countHistograms: array<array<u32, 16>, 16>;
 var<workgroup> activeHistogramRange: vec2u;
@@ -26,6 +33,7 @@ fn scanKeys(builtin: Builtin) {
 
     clearOffsetHistogram(globalIndex);
     loadLocalKeys(globalIndex);
+    loadLocalValues(globalIndex);
     workgroupBarrier();
 
     countTileKeys(globalIndex);
@@ -156,6 +164,7 @@ fn scatterKey(globalIndex: u32) {
     let localIndex = getLocalIndex(globalIndex);
     let tile = localIndex >> 4u;
     let key = localKeys[localIndex];
+    let value = localValues[localIndex];
     let digit = getDigit(key);
     var index = countHistograms[tile][digit];
 
@@ -168,8 +177,10 @@ fn scatterKey(globalIndex: u32) {
 
     if (bool(shift & 4u)) {
         keysA[index] = key;
+        valuesA[index] = value;
     } else {
         keysB[index] = key;
+        valuesB[index] = value;
     }
 }
 
@@ -262,6 +273,22 @@ fn loadLocalKeys(globalIndex: u32) {
     }
 
     localKeys[localIndex] = key;
+}
+
+fn loadLocalValues(globalIndex: u32) {
+    let validA = globalIndex < arrayLength(&valuesA);
+    let validB = globalIndex < arrayLength(&valuesB);
+    let localIndex = getLocalIndex(globalIndex);
+    let sourceB = bool(shift & 4u);
+    var value = 0u;
+
+    if (validA && !sourceB) {
+        value = valuesA[globalIndex];
+    } else if (validB && sourceB) {
+        value = valuesB[globalIndex];
+    }
+
+    localValues[localIndex] = value;
 }
 
 fn loadOffsetHistogram(globalIndex: u32) {

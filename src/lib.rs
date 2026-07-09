@@ -32,6 +32,8 @@ impl DrawContext {
 
         let keys = self.allocator.alloc::<u32>(1024);
         let temp_keys = self.allocator.alloc::<u32>(keys.len());
+        let values = self.allocator.alloc::<u32>(keys.len());
+        let temp_values = self.allocator.alloc::<u32>(keys.len());
         let histogram_capacity = SortPipeline::min_histogram_capacity(keys.len());
         let histograms = self.allocator.alloc::<[u32; 16]>(histogram_capacity);
         let mut memory = self.allocator.finalize();
@@ -42,6 +44,8 @@ impl DrawContext {
         data[15] = 999999;
         data[31] = 49382;
         memory.upload(encoder, keys, &data);
+        let values_data = (0..1024).collect::<Vec<u32>>();
+        memory.upload(encoder, values, &values_data);
 
         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
             label: Some("Canvas Compute Pass"),
@@ -51,6 +55,8 @@ impl DrawContext {
         self.sort_pipeline.encode(&mut compute_pass, &mut memory, SortBuffers {
             keys,
             temp_keys,
+            values,
+            temp_values,
             histograms,
         });
 

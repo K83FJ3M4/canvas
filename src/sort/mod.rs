@@ -20,6 +20,8 @@ pub(super) struct SortPipeline {
 pub(super) struct SortBuffers {
     pub(super) keys: Allocation<u32>,
     pub(super) temp_keys: Allocation<u32>,
+    pub(super) values: Allocation<u32>,
+    pub(super) temp_values: Allocation<u32>,
     pub(super) histograms: Allocation<[u32; 16]>
 }
 
@@ -37,18 +39,18 @@ impl SortPipeline {
             source: ShaderSource::Wgsl(include_str!("shader.wgsl").into())
         });
 
-        let bind_group_layout_entires = [0, 1, 2, 3].map(|i| {
+        let bind_group_layout_entires = [0, 1, 2, 3, 4, 5].map(|i| {
             BindGroupLayoutEntry {
                 binding: i,
                 count: None,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: if i == 3 {
+                    ty: if i == 5 {
                         BufferBindingType::Uniform
                     } else {
                         BufferBindingType::Storage { read_only: false }
                     },
-                    has_dynamic_offset: i == 3,
+                    has_dynamic_offset: i == 5,
                     min_binding_size: None
                 }
             }
@@ -144,9 +146,13 @@ impl SortPipeline {
     pub(super) fn encode(&self, compute_pass: &mut ComputePass, memory: &mut AllocationMemory, buffers: SortBuffers) {
         assert!(buffers.histograms.len() >= Self::min_histogram_capacity(buffers.keys.len()));
         assert!(buffers.keys.len() == buffers.temp_keys.len());
+        assert!(buffers.keys.len() == buffers.values.len());
+        assert!(buffers.keys.len() == buffers.temp_values.len());
 
         let Some(keys) = memory.binding(buffers.keys) else { return };
         let Some(temp_keys) = memory.binding(buffers.temp_keys) else { return };
+        let Some(values) = memory.binding(buffers.values) else { return };
+        let Some(temp_values) = memory.binding(buffers.temp_values) else { return };
         let Some(histograms) = memory.binding(buffers.histograms) else { return };
         let uniforms = BindingResource::Buffer(BufferBinding {
             buffer: &self.uniforms,
@@ -155,7 +161,7 @@ impl SortPipeline {
         });
 
         let mut binding = 0;
-        let bind_group_entries = [keys, temp_keys, histograms, uniforms].map(|resource| {
+        let bind_group_entries = [keys, temp_keys, values, temp_values, histograms, uniforms].map(|resource| {
             let entry = BindGroupEntry { binding, resource };
             binding += 1;
             entry
