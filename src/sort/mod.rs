@@ -1,11 +1,16 @@
+use std::iter::{once, successors};
+
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
+use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType, BufferSize, BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages};
 
 use crate::alloc::{Allocation, AllocationMemory};
 
 pub(super) struct SortPipeline {
     count_keys: ComputePipeline,
-    count_histograms: ComputePipeline,
+    merge_histograms: ComputePipeline,
+    init_offset_histogram: ComputePipeline,
+    scan_histograms: ComputePipeline,
+    scan_keys: ComputePipeline,
     bind_group_layout: BindGroupLayout,
     uniform_offsets: Vec<u32>,
     uniforms: Buffer,
@@ -62,11 +67,38 @@ impl SortPipeline {
             module: &module
         });
 
-        let count_histograms = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: Some("Count Histograms Pipeline"),
+        let merge_histograms = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Merge Histograms Pipeline"),
             cache: None,
             compilation_options: Default::default(),
-            entry_point: Some("countHistograms"),
+            entry_point: Some("mergeHistograms"),
+            layout: Some(&pipeline_layout),
+            module: &module
+        });
+
+        let init_offset_histogram = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Init Offset Histogram Pipeline"),
+            cache: None,
+            compilation_options: Default::default(),
+            entry_point: Some("initOffsetHistogram"),
+            layout: Some(&pipeline_layout),
+            module: &module
+        });
+
+        let scan_histograms = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Scan Histograms Pipeline"),
+            cache: None,
+            compilation_options: Default::default(),
+            entry_point: Some("scanHistograms"),
+            layout: Some(&pipeline_layout),
+            module: &module
+        });
+
+        let scan_keys = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Scan Keys Pipeline"),
+            cache: None,
+            compilation_options: Default::default(),
+            entry_point: Some("scanKeys"),
             layout: Some(&pipeline_layout),
             module: &module
         });
@@ -90,10 +122,13 @@ impl SortPipeline {
         });
 
         SortPipeline {
+            init_offset_histogram,
             bind_group_layout,
-            count_histograms,
+            merge_histograms,
+            scan_histograms,
             uniform_offsets,
             count_keys,
+            scan_keys,
             uniforms,
             device
         }
@@ -103,7 +138,11 @@ impl SortPipeline {
         let Some(keys) = memory.binding(buffers.keys) else { return };
         let Some(temp_keys) = memory.binding(buffers.temp_keys) else { return };
         let Some(histograms) = memory.binding(buffers.histograms) else { return };
-        let uniforms = self.uniforms.as_entire_binding();
+        let uniforms = BindingResource::Buffer(BufferBinding {
+            buffer: &self.uniforms,
+            size: BufferSize::new(4),
+            offset: 0,
+        });
 
         let mut binding = 0;
         let bind_group_entries = [keys, temp_keys, histograms, uniforms].map(|resource| {
@@ -118,15 +157,34 @@ impl SortPipeline {
             entries: bind_group_entries.as_slice()
         });
 
-        for offset in self.uniform_offsets.iter().copied() {
-            let x = buffers.keys.len().div_ceil(256) as u32;
+        let length = buffers.keys.len() as u32;
+        let reduction = |item: &u32| Some(item.div_ceil(256));
+        let mut count_iter = successors(Some(length), reduction)
+            .take_while(|count| *count > 1).skip(1);
+        let init_dispatch_size = count_iter.next().unwrap_or(1);
+        let dispatch_sizes = count_iter.chain(once(1))
+            .collect::<Vec<u32>>();
+
+        for offset in self.uniform_offsets.iter().copied() { 
             compute_pass.set_bind_group(0, &bind_group, &[offset]);
             compute_pass.set_pipeline(&self.count_keys);
-            compute_pass.dispatch_workgroups(x, 1, 1);
-            compute_pass.set_pipeline(&self.count_histograms);
+            compute_pass.dispatch_workgroups(init_dispatch_size, 1, 1);
+            compute_pass.set_pipeline(&self.merge_histograms);
 
-            //Only for testing purposes
-            break
+            for dispatch_size in dispatch_sizes.iter().copied() {
+                compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+            }
+
+            compute_pass.set_pipeline(&self.init_offset_histogram);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+            compute_pass.set_pipeline(&self.scan_histograms);
+
+            for dispatch_size in dispatch_sizes.iter().copied().rev() {
+                compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+            }
+
+            compute_pass.set_pipeline(&self.scan_keys);
+            compute_pass.dispatch_workgroups(init_dispatch_size, 1, 1);
         }
     }
 }

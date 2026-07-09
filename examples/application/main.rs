@@ -255,7 +255,7 @@ impl RenderState {
             label: Some("Canvas Command Encoder")
         });
 
-        self.draw_context.render(&mut command_encoder, texture_view.clone());
+        self.draw_context.render(&mut command_encoder, texture_view.clone(), &self.device, &self.queue);
 
         if let Some(target) = target {
             self.texture_blitter.copy(

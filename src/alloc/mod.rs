@@ -78,6 +78,7 @@ impl StagingPool {
     }
 
     fn begin_frame(&mut self) {
+        self.frame_index += 1;
         while let Ok(buffer) = self.receiver.try_recv() {
             self.free.push((self.frame_index, buffer));
         }
@@ -92,16 +93,16 @@ impl StagingPool {
 
 impl Allocator {
     pub(super) fn new(device: Device) -> Allocator {
-        let sizes = successors(Some(256 * 1024usize), |n| Some(n * 4));
+        let sizes = successors(Some(256 * 1024usize), |n| Some(n * 2));
         let mut pools = Vec::new();
-        for block_size in sizes.take(4) {
+        for block_size in sizes.take(6) {
             pools.push(StagingPool::new(device.clone(), block_size));
         }
 
         Allocator {
             offset: 0,
             alignment: device.limits()
-                .min_storage_buffer_offset_alignment.max(1) as usize,
+                .min_storage_buffer_offset_alignment.max(4) as usize,
             buffer: None,
             device,
             pools
@@ -127,7 +128,7 @@ impl Allocator {
         let buffer = self.buffer.get_or_insert_with(|| self.device.create_buffer(&BufferDescriptor {
             label: None,
             size: size.checked_next_power_of_two().unwrap_or(u64::MAX).max(8),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false
         }));
 
@@ -150,6 +151,7 @@ impl<'a> AllocationMemory<'a> {
     }
 
     pub(super) fn upload<T: Pod>(&mut self, encoder: &mut CommandEncoder, allocation: Allocation<T>, data: &[T]) {
+        assert!(size_of::<T>() % 4 == 0);
         let bytes = cast_slice::<T, u8>(data);
         assert!(data.len() == allocation.len);
         let block_size = self.pools.last_mut().unwrap().block_size;
