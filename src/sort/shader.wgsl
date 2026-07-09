@@ -25,64 +25,29 @@ struct Builtin {
 fn scanKeys(builtin: Builtin) {
     let localIndex = builtin.localIndex.x;
     let globalIndex = builtin.globalIndex.x;
-    let workgroupIndex = builtin.workgroupIndex.x;
-    let blockStart = globalIndex - localIndex;
-    let keyCount = min(256u, keyArrayLength() - blockStart);
-    let valid = localIndex < keyCount; 
+    if (localIndex < 16u) { offsetHistogram[localIndex] = 0u; }
 
     let key = loadLocalKeys(globalIndex);
     workgroupBarrier();
 
-    let bucket = localIndex & 15u;
-    let tile = localIndex >> 4u;
-    let tileStart = tile * 16u;
-    let tileEnd = min(tileStart + 16u, keyCount);
+    countTileKeys(globalIndex);
+    workgroupBarrier(); 
 
-    var count = 0u;
-    for (var i = tileStart; i < tileEnd; i++) {
-        let digit = (localKeys[i] >> shift) & 15u;
-        count += u32(digit == bucket);
-    }
-
-    countHistograms[tile][bucket] = count;
+    scanLocalHistograms(localIndex);
     workgroupBarrier();
 
-    if (localIndex < 16u) {
-        var sum = 0u;
-        for (var i = 0u; i < 16u; i++) {
-            let value = countHistograms[i][localIndex];
-            countHistograms[i][localIndex] = sum;
-            sum += value;
-        }
-    }
-
-    workgroupBarrier();
-
-    if (valid) {
-        let digit = (key >> shift) & 15u;
-
-        var localRank = countHistograms[tile][digit];
-        for (var i = tileStart; i < localIndex; i++) {
-            let otherDigit = (localKeys[i] >> shift) & 15u;
-            localRank += u32(otherDigit == digit);
-        }
-
-        let dst = histograms[workgroupIndex][digit] + localRank;
-        writeKey(dst, key);
-    }
+    scatterKey(globalIndex, key);
 }
 
 @compute @workgroup_size(256)
 fn scanHistograms(builtin: Builtin) {
     let localIndex = builtin.localIndex.x;
+    let globalIndex = builtin.globalIndex.x;
     let numWorkgroups = builtin.numWorkgroups.x;
     let workgroupIndex = builtin.workgroupIndex.x;
     let histogramRange = getHistogramRange(numWorkgroups);
 
-    if (localIndex < 16u) {
-        let index = histogramRange.y + workgroupIndex;
-        offsetHistogram[localIndex] = histograms[index][localIndex];
-    }
+    loadOffsetHistogram(globalIndex, histogramRange); 
 
     let lane = localIndex & 15u;
     let tile = localIndex >> 4;
@@ -100,15 +65,7 @@ fn scanHistograms(builtin: Builtin) {
     countHistograms[tile][lane] = count;
     workgroupBarrier();
 
-    if (localIndex < 16u) {
-        count = offsetHistogram[localIndex];
-        for (var i = 0u; i < 16u; i++) {
-            let value = countHistograms[i][localIndex];
-            countHistograms[i][localIndex] = count;
-            count += value;
-        }
-    }
-
+    scanLocalHistograms(localIndex);
     workgroupBarrier();
     count = countHistograms[tile][lane];
 
@@ -121,9 +78,11 @@ fn scanHistograms(builtin: Builtin) {
 
 @compute @workgroup_size(16)
 fn initOffsetHistogram(builtin: Builtin) {
-    let index = getHistogramRange(1).y;
+    let histogramRange = getHistogramRange(1);
     let localIndex = builtin.localIndex.x;
-    offsetHistogram[localIndex] = histograms[index][localIndex];
+    let globalIndex = builtin.globalIndex.x;
+
+    loadOffsetHistogram(globalIndex, histogramRange);
     workgroupBarrier();
 
     var sum = 0u;
@@ -136,7 +95,7 @@ fn initOffsetHistogram(builtin: Builtin) {
     }
 
     workgroupBarrier();
-    histograms[index][localIndex] = offsetHistogram[localIndex];
+    histograms[histogramRange.y][localIndex] = offsetHistogram[localIndex];
 }
 
 @compute @workgroup_size(256)
@@ -144,29 +103,16 @@ fn countKeys(builtin: Builtin) {
     let localIndex = builtin.localIndex.x;
     let globalIndex = builtin.globalIndex.x;
     let workgroupIndex = builtin.workgroupIndex.x;
-    let globalOffset = globalIndex - localIndex;
-    let keyCount = keyArrayLength() - globalOffset;
 
     loadLocalKeys(globalIndex);
     workgroupBarrier();
 
-    var count = 0u;
-    let lane = localIndex & 15u;
-    let tile = localIndex >> 4;
-    let tileStart = tile * 16u;
-    let tileEnd = min(tileStart + 16u, keyCount);
-
-    for (var i = tileStart; i < tileEnd; i++) {
-        let key = (localKeys[i] >> shift) & 15u;
-        count += u32(key == lane);
-    }
-
-    countHistograms[tile][lane] = count;
+    countTileKeys(globalIndex);
     workgroupBarrier();
 
     if (localIndex >= 16u) { return; }
 
-    count = 0u;
+    var count = 0u;
     for (var i = 0u; i < 16u; i++) {
         count += countHistograms[i][localIndex];
     }
@@ -197,13 +143,10 @@ fn mergeHistograms(builtin: Builtin) {
     workgroupBarrier();
 
     if (localIndex >= 16u) { return; }
-
-    count = 0u;
-    for (var i = 0u; i < 16u; i++) {
-        count += countHistograms[i][localIndex];
-    }
+    offsetHistogram[localIndex] = 0u;
+    let sum = scanLocalHistograms(localIndex);
     let targetIndex = histogramRange.y + workgroupIndex;
-    histograms[targetIndex][localIndex] = count;
+    histograms[targetIndex][localIndex] = sum;
 }
 
 fn getHistogramRange(numWorkgroups: u32) -> vec2u {
@@ -217,6 +160,58 @@ fn getHistogramRange(numWorkgroups: u32) -> vec2u {
     }
 
     return vec2(offset, offset + sourceCount);
+}
+
+fn scanLocalHistograms(localIndex: u32) -> u32 {
+    if (localIndex >= 16u) { return 0u; }
+
+    var sum = offsetHistogram[localIndex];
+    for (var i = 0u; i < 16u; i++) {
+        let value = countHistograms[i][localIndex];
+        countHistograms[i][localIndex] = sum;
+        sum += value;
+    }
+
+    return sum;
+}
+
+fn scatterKey(globalIndex: u32, key: u32) {
+    if globalIndex >= keyArrayLength() { return; }
+    let workgroupIndex = globalIndex >> 8u;
+    let localIndex = globalIndex & 255u;
+    let tile = localIndex >> 4u;
+    let digit = (key >> shift) & 15u;
+    var index = countHistograms[tile][digit];
+
+    for (var i = tile * 16u; i < localIndex; i++) {
+        var otherDigit = (localKeys[i] >> shift) & 15u;
+        index += u32(otherDigit == digit);
+    }
+
+    index += histograms[workgroupIndex][digit];
+
+    if (bool(shift & 4u)) {
+        keysA[index] = key;
+    } else {
+        keysB[index] = key;
+    }
+}
+
+fn countTileKeys(globalIndex: u32) {
+    let workgroupOffset = globalIndex & ~255u;
+    let numKeys = keyArrayLength() - workgroupOffset;
+    let localIndex = globalIndex & 255u;
+    let lane = localIndex & 15u;
+    let tile = localIndex >> 4u;
+    let tileOffset = tile * 16u;
+
+    var count = 0u;
+    for (var i = tileOffset; i < tileOffset + 16u; i++) {
+        let digit = (localKeys[i] >> shift) & 15u;
+        count += u32(digit == lane && i < numKeys);
+    }
+
+    countHistograms[tile][lane] = count;
 }
 
 fn loadLocalKeys(globalIndex: u32) -> u32 {
@@ -236,19 +231,19 @@ fn loadLocalKeys(globalIndex: u32) -> u32 {
     return key;
 }
 
-fn writeKey(index: u32, key: u32) {
-    if (!bool(shift & 4u)) {
-        keysB[index] = key;
-    } else {
-        keysA[index] = key;
-    }
+fn loadOffsetHistogram(globalIndex: u32, histogramRange: vec2u) {
+    let localIndex = globalIndex & 255u;
+    let workgroupIndex = globalIndex >> 8;
+    if (localIndex >= 16u) { return; }
+    let index = histogramRange.y + workgroupIndex;
+    offsetHistogram[localIndex] = histograms[index][localIndex];
 }
 
 fn keyArrayLength() -> u32 {
-    if (!bool(shift & 4u)) {
-        return arrayLength(&keysA);
-    } else {
+    if (bool(shift & 4u)) {
         return arrayLength(&keysB);
+    } else {
+        return arrayLength(&keysA);
     }
 }
 
