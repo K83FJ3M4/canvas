@@ -27,7 +27,8 @@ impl SortPipeline {
     pub(super) fn min_histogram_capacity(key_count: usize) -> usize {
         successors(Some(key_count), |i| Some(i.div_ceil(256)))
             .take_while(|count| *count > 1)
-            .skip(1).chain(once(1)).sum()
+            .skip(1).chain(once(1))
+            .sum::<usize>().max(2)
     }
 
     pub(super) fn new(device: Device) -> SortPipeline {
