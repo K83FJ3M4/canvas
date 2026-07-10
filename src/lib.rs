@@ -77,7 +77,7 @@ impl DrawContext {
             list_ranges: list_ranges,
         });
 
-        if let Some(binding) = memory.binding(list_ranges) {
+        /*if let Some(binding) = memory.binding(list_ranges) {
             if let wgpu::BindingResource::Buffer(binding) = binding {
                 let slice = if let Some(size) = binding.size {
                     binding.buffer.slice(binding.offset..binding.offset + size.get())
@@ -91,7 +91,7 @@ impl DrawContext {
                     println!("{:?}", bytemuck::cast_slice::<u8, [u32; 2]>(&buffer));
                 });
             }
-        }
+        }*/
 
         self.tile_pipeline.encode(&mut compute_pass, &mut memory, TileBuffers {
             list_ranges,
