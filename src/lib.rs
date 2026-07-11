@@ -36,6 +36,8 @@ impl DrawContext {
 
     pub fn render(&mut self, encoder: &mut CommandEncoder, texture: TextureView, device: &Device, queue: &wgpu::Queue) {
 
+        let params = self.allocator.alloc::<u32>(1);
+
         let list_ranges = self.allocator.alloc::<[u32; 2]>(32);
         let keys = self.allocator.alloc::<u32>(1024);
         let temp_keys = self.allocator.alloc::<u32>(keys.len());
@@ -53,6 +55,7 @@ impl DrawContext {
         memory.upload(encoder, keys, &data);
         let values_data = (0..1024).collect::<Vec<u32>>();
         memory.upload(encoder, lists, &values_data);
+        memory.upload(encoder, params, &[4]);
 
         if let Some(BindingResource::Buffer(list_ranges)) = memory.binding(list_ranges) {
             let size = list_ranges.size.map(NonZero::<u64>::get);
@@ -96,7 +99,8 @@ impl DrawContext {
         self.tile_pipeline.encode(&mut compute_pass, &mut memory, TileBuffers {
             list_ranges,
             texture,
-            lists
+            lists,
+            params
         });
     }
 }

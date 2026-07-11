@@ -11,6 +11,7 @@ pub(super) struct TilePipeline {
 }
 
 pub(super) struct TileBuffers {
+    pub(super) params: Allocation<u32>,
     pub(super) texture: TextureView,
     pub(super) lists: Allocation<u32>,
     pub(super) list_ranges: Allocation<[u32; 2]>
@@ -30,7 +31,7 @@ impl TilePipeline {
             source: ShaderSource::Wgsl(Cow::Owned(source))
         });
 
-        let bind_group_layout_entries = [0, 1, 2].map(|i| BindGroupLayoutEntry {
+        let bind_group_layout_entries = [0, 1, 2, 3].map(|i| BindGroupLayoutEntry {
             binding: i,
             visibility: ShaderStages::COMPUTE,
             count: None,
@@ -77,12 +78,13 @@ impl TilePipeline {
     }
 
     pub(super) fn encode(&self, compute_pass: &mut ComputePass, memory: &mut AllocationMemory, buffers: TileBuffers) {
+        let Some(params) = memory.binding(buffers.params) else { return };
         let Some(lists) = memory.binding(buffers.lists) else { return };
         let Some(list_ranges) = memory.binding(buffers.list_ranges) else { return };
         let texture = BindingResource::TextureView(&buffers.texture);
 
         let mut binding = 0;
-        let bind_group_entries = [texture, lists, list_ranges].map(|resource| {
+        let bind_group_entries = [texture, lists, list_ranges, params].map(|resource| {
             let entry = BindGroupEntry { binding, resource };
             binding += 1;
             entry
