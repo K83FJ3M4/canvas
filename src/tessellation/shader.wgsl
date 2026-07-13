@@ -6,9 +6,11 @@ var<storage, read_write> paths: array<Path>;
 @group(0) @binding(2)
 var<storage, read_write> triangleListIndices: array<u32>;
 @group(0) @binding(3)
+var<storage, read_write> triangleIndices: array<u32>;
+@group(0) @binding(4)
 var<storage, read_write> triangles: array<Triangle>;
 
-@group(0) @binding(4)
+@group(0) @binding(5)
 var<storage, read_write> uniforms: Params;
 
 struct Params {
@@ -49,10 +51,6 @@ fn main(builtin: Builtin) {
     let localTriangleIndex = index - path.offset;
     let pointCount = path.length;
 
-    if (localTriangleIndex + 2u >= pointCount) {
-        //degenerate triangle
-    }
-
     let survivor = 1u << firstLeadingBit(pointCount - 1u);
     var indexA = localTriangleIndex + 1u;
     indexA += u32(indexA >= survivor);
@@ -78,6 +76,9 @@ fn main(builtin: Builtin) {
     triangle.a = makeEdge(edgeA[0], edgeA[1], flip);
     triangle.b = makeEdge(edgeB[0], edgeB[1], flip);
     triangle.c = makeEdge(edgeC[0], edgeC[1], flip);
+    //Assign degenerate triangles to u32::MAX
+    triangleListIndices[index] = select(1u, ~0u, localTriangleIndex + 2u >= pointCount);
+    triangleIndices[index] = index;
     triangles[index] = triangle;
 }
 

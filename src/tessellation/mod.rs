@@ -40,6 +40,7 @@ pub(super) struct TessellationBuffers {
     pub(super) points: Allocation<Point>,
     pub(super) paths: Allocation<Path>,
     pub(super) triangle_list_indices: Allocation<u32>,
+    pub(super) triangle_indices: Allocation<u32>,
     pub(super) triangles: Allocation<Triangle>,
     pub(super) uniforms: Allocation<u32>
 }
@@ -51,7 +52,7 @@ impl TessellationPipeline {
             source: ShaderSource::Wgsl(include_str!("shader.wgsl").into())
         });
 
-        let bind_group_layout_entires = [0, 1, 2, 3, 4].map(|i| BindGroupLayoutEntry {
+        let bind_group_layout_entires = [0, 1, 2, 3, 4, 5].map(|i| BindGroupLayoutEntry {
             binding: i,
             count: None,
             visibility: ShaderStages::COMPUTE,
@@ -96,13 +97,14 @@ impl TessellationPipeline {
         let Some(points) = memory.binding(buffers.points) else { return };
         let Some(paths) = memory.binding(buffers.paths) else { return };
         let Some(triangle_list_indices) = memory.binding(buffers.triangle_list_indices) else { return };
+        let Some(triangle_indices) = memory.binding(buffers.triangle_indices) else { return };
         let Some(triangles) = memory.binding(buffers.triangles) else { return };
         let Some(uniforms) = memory.binding(buffers.uniforms) else { return };
 
         let mut binding = 0;
         let bind_group_entries = [
             points, paths, triangle_list_indices,
-            triangles, uniforms
+            triangle_indices, triangles, uniforms
             ].map(|resource| {
             let entry = BindGroupEntry { binding, resource };
             binding += 1;

@@ -14,18 +14,23 @@ fn main(builtin: Builtin) {
     let length = arrayLength(&sortedListKeys);
     if (globalIndex >= length) { return; }
     let currentList = sortedListKeys[globalIndex];
+    let valid = currentList != ~0u;
 
     if (globalIndex == 0u) {
-        listRanges[currentList][0] = globalIndex;
+        if (valid) {
+            listRanges[currentList][0] = globalIndex;
+        }
     } else {
         let previousList = sortedListKeys[globalIndex - 1u]; 
         if (currentList != previousList) {
             listRanges[previousList][1] = globalIndex;
-            listRanges[currentList][0] = globalIndex;
+            if (valid) {
+                listRanges[currentList][0] = globalIndex;
+            }
         }
     }
 
-    if (globalIndex == length - 1u) {
+    if (globalIndex == length - 1u && valid) {
         listRanges[currentList][1] = length;
     }
 }

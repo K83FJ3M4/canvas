@@ -50,7 +50,7 @@ impl DrawContext {
         let points = self.allocator.alloc::<Point>(3);
         let triangles = self.allocator.alloc::<Triangle>(points.len());
         let triangle_list_indices = self.allocator.alloc::<u32>(triangles.len());
-        let lists = self.allocator.alloc::<u32>(triangles.len());
+        let triangle_indices = self.allocator.alloc::<u32>(triangles.len());
         
         let temp_keys = self.allocator.alloc::<u32>(triangles.len());
         let temp_lists = self.allocator.alloc::<u32>(triangles.len());
@@ -90,13 +90,14 @@ impl DrawContext {
             points,
             triangle_list_indices,
             triangles,
-            uniforms: params
+            uniforms: params,
+            triangle_indices
         });
 
         self.sort_pipeline.encode(&mut compute_pass, &mut memory, SortBuffers {
             keys: triangle_list_indices,
             temp_keys,
-            values: lists,
+            values: triangle_indices,
             temp_values: temp_lists,
             histograms,
         });
@@ -126,7 +127,7 @@ impl DrawContext {
             triangles,
             list_ranges,
             texture,
-            lists,
+            lists: triangle_indices,
             params
         });
     }

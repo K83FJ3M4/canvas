@@ -52,9 +52,12 @@ fn main(builtin: Builtin) {
     let uv = vec2<f32>(builtin.localIndex.xy) / 15.0;
     var color = vec4<f32>(uv.x, uv.y, 0.5, 1.0);
 
-    var stencil = 0u;
-    for (var i = 0u; i < arrayLength(&triangles); i++) {
-        let triangle = triangles[i];
+    var stencil = 0u; 
+
+    while (listHeads[0].length > 0u) {
+        let item = nextItem(localIndex);
+        color = vec4(1.0, 0.0, 0.0, 1.0);
+        let triangle = triangles[item];
         let insideA = insideEdge(triangle.a, sample);
         let insideB = insideEdge(triangle.b, sample);
         let insideC = insideEdge(triangle.c, sample);
@@ -69,14 +72,8 @@ fn main(builtin: Builtin) {
     }
 
     if (bool(stencil & 1u)) {
-        color =  vec4(0.0, 0.0, 0.0, 1.0);
+        color = vec4(0.0, 0.0, 0.0, 1.0);
     }
-
-    while (listHeads[0].length > 0u) {
-        let item = nextItem(localIndex);
-        //color = vec4(0.0, 0.0, 0.0, 1.0);
-    }
-
 
     if (all(globalIndex < size)) {
         textureStore(output, globalIndex, color); 
