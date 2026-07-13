@@ -5,12 +5,23 @@ var<storage, read_write> lists: array<u32>;
 var<storage, read_write> listRanges: array<array<u32, 2>>;
 
 @group(0) @binding(3)
+var<storage, read_write> triangles: array<Triangle>;
+
+@group(0) @binding(4)
 var<storage, read_write> params: Params;
 
 var<workgroup> listHeads: array<ListHead, 64>;
 
 struct Params {
     sampleFractionBits: u32
+}
+
+struct Triangle {
+    clockwise: u32,
+    material: u32,
+    a: vec2u,
+    b: vec2u,
+    c: vec2u
 }
 
 struct ListHead {
@@ -32,21 +43,51 @@ fn main(builtin: Builtin) {
     let globalIndex = builtin.globalIndex.xy;
     let size = textureDimensions(output);
 
+    let bits = params.sampleFractionBits;
+    let sample = (globalIndex << vec2(bits)) + vec2(1u << (bits - 1u));
+
     loadListHeads(localIndex, workgroupIndex);
     sortListHeads(localIndex);
-
-    while (listHeads[0].length > 0u) {
-        let item = nextItem(localIndex);
-
-        //do things with item
-    }
 
     let uv = vec2<f32>(builtin.localIndex.xy) / 15.0;
     var color = vec4<f32>(uv.x, uv.y, 0.5, 1.0);
 
+    var stencil = 0u;
+    for (var i = 0u; i < arrayLength(&triangles); i++) {
+        let triangle = triangles[i];
+        let insideA = insideEdge(triangle.a, sample);
+        let insideB = insideEdge(triangle.b, sample);
+        let insideC = insideEdge(triangle.c, sample);
+
+        if (insideA && insideB && insideC) {
+            if (bool(triangle.clockwise)) {
+                stencil -= 1u;
+            } else {
+                stencil += 1u;
+            }
+        }
+    }
+
+    if (bool(stencil & 1u)) {
+        color =  vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    while (listHeads[0].length > 0u) {
+        let item = nextItem(localIndex);
+        //color = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+
     if (all(globalIndex < size)) {
         textureStore(output, globalIndex, color); 
     }
+}
+
+fn insideEdge(edge: vec2u, sample: vec2u) -> bool {
+    let a = bitcast<i32>(edge.x << 16u) >> 16u;
+    let b = bitcast<i32>(edge.x) >> 16u;
+    let c = bitcast<i32>(edge.y);
+    return (a * i32(sample.x) + b * i32(sample.y) + c) >= 0i;
 }
 
 fn nextItem(localIndex: u32) -> u32 {

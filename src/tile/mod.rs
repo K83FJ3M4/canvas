@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBindingType, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureFormat, TextureView, TextureViewDimension};
 
-use crate::alloc::{Allocation, AllocationMemory};
+use crate::{Triangle, alloc::{Allocation, AllocationMemory}};
 
 pub(super) struct TilePipeline {
     compute_pipeline: ComputePipeline,
@@ -14,6 +14,7 @@ pub(super) struct TileBuffers {
     pub(super) params: Allocation<u32>,
     pub(super) texture: TextureView,
     pub(super) lists: Allocation<u32>,
+    pub(super) triangles: Allocation<Triangle>,
     pub(super) list_ranges: Allocation<[u32; 2]>
 }
 
@@ -31,7 +32,7 @@ impl TilePipeline {
             source: ShaderSource::Wgsl(Cow::Owned(source))
         });
 
-        let bind_group_layout_entries = [0, 1, 2, 3].map(|i| BindGroupLayoutEntry {
+        let bind_group_layout_entries = [0, 1, 2, 3, 4].map(|i| BindGroupLayoutEntry {
             binding: i,
             visibility: ShaderStages::COMPUTE,
             count: None,
@@ -81,10 +82,11 @@ impl TilePipeline {
         let Some(params) = memory.binding(buffers.params) else { return };
         let Some(lists) = memory.binding(buffers.lists) else { return };
         let Some(list_ranges) = memory.binding(buffers.list_ranges) else { return };
+        let Some(triangles) = memory.binding(buffers.triangles) else { return };
         let texture = BindingResource::TextureView(&buffers.texture);
 
         let mut binding = 0;
-        let bind_group_entries = [texture, lists, list_ranges, params].map(|resource| {
+        let bind_group_entries = [texture, lists, list_ranges, triangles, params].map(|resource| {
             let entry = BindGroupEntry { binding, resource };
             binding += 1;
             entry
