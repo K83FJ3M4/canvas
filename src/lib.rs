@@ -38,7 +38,7 @@ impl DrawContext {
         }
     }
 
-    pub fn render(&mut self, encoder: &mut CommandEncoder, texture: TextureView, device: &Device, queue: &wgpu::Queue) {
+    pub fn render(&mut self, encoder: &mut CommandEncoder, texture: TextureView) {
 
         let size = texture.texture().size();
         let extent = size.width.max(size.height);
@@ -106,22 +106,6 @@ impl DrawContext {
             sorted_list_keys: triangle_list_indices,
             list_ranges
         });
-
-        /*if let Some(binding) = memory.binding(list_ranges) {
-            if let wgpu::BindingResource::Buffer(binding) = binding {
-                let slice = if let Some(size) = binding.size {
-                    binding.buffer.slice(binding.offset..binding.offset + size.get())
-                } else {
-                    binding.buffer.slice(binding.offset..)
-                };
-
-                wgpu::util::DownloadBuffer::read_buffer(device, queue, &slice, |data| {
-                    let Ok(buffer) = data else { return };
-                    println!("\n");
-                    println!("{:?}", bytemuck::cast_slice::<u8, [u32; 2]>(&buffer));
-                });
-            }
-        }*/
 
         self.tile_pipeline.encode(&mut compute_pass, &mut memory, TileBuffers {
             triangles,

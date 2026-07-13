@@ -1,3 +1,6 @@
+@group(0) @binding(0)
+var output: texture_storage_2d<rgba8unorm, write>;
+
 @group(0) @binding(1)
 var<storage, read_write> lists: array<u32>;
 

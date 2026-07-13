@@ -20,13 +20,16 @@ pub(super) struct TileBuffers {
 
 impl TilePipeline {
     pub(super) fn new(device: Device, format: TextureFormat) -> TilePipeline {
-        let mut source = match format {
-            TextureFormat::Rgba8Unorm => include_str!("output_rgba.wgsl").to_string(),
-            TextureFormat::Bgra8Unorm => include_str!("output_bgra.wgsl").to_string(),
+        let source = include_str!("shader.wgsl");
+        let source = match format {
+            TextureFormat::Rgba8Unorm => source.to_string(),
+            TextureFormat::Bgra8Unorm => source.replace(
+                "texture_storage_2d<rgba8unorm, write>",
+                "texture_storage_2d<bgra8unorm, write>"
+            ),
             format => panic!("Canvas format must be either Rgba8Unorm or Bgra8Unorm not {format:?}")
         };
 
-        source.push_str(include_str!("shader.wgsl"));
         let module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("Tile Shader"),
             source: ShaderSource::Wgsl(Cow::Owned(source))
