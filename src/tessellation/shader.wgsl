@@ -51,6 +51,12 @@ fn main(builtin: Builtin) {
     let localTriangleIndex = index - path.offset;
     let pointCount = path.length;
 
+    if (localTriangleIndex + 2u >= pointCount) {
+        triangleIndices[index] = index;
+        triangleListIndices[index] = ~0u;
+        return;
+    }
+
     let survivor = 1u << firstLeadingBit(pointCount - 1u);
     var indexA = localTriangleIndex + 1u;
     indexA += u32(indexA >= survivor);
@@ -60,9 +66,9 @@ fn main(builtin: Builtin) {
     var indexC = indexA + stride;
     indexC = select(indexC, 0u, indexC >= pointCount);
 
-    let vertexA = points[indexA].value;
-    let vertexB = points[indexB].value;
-    let vertexC = points[indexC].value;
+    let vertexA = points[path.offset + indexA].value;
+    let vertexB = points[path.offset + indexB].value;
+    let vertexC = points[path.offset + indexC].value;
 
     let fractionBits = path.fractionBits;
     let edgeA = clipLine(array(vertexA, vertexB), fractionBits);
@@ -76,8 +82,7 @@ fn main(builtin: Builtin) {
     triangle.a = makeEdge(edgeA[0], edgeA[1], flip);
     triangle.b = makeEdge(edgeB[0], edgeB[1], flip);
     triangle.c = makeEdge(edgeC[0], edgeC[1], flip);
-    //Assign degenerate triangles to u32::MAX
-    triangleListIndices[index] = select(1u, ~0u, localTriangleIndex + 2u >= pointCount);
+    triangleListIndices[index] = 1u;
     triangleIndices[index] = index;
     triangles[index] = triangle;
 }
